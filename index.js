@@ -1,14 +1,19 @@
 import 'dotenv/config';
 import express from 'express';
 import cookieParser from 'cookie-parser';
-import authRoutes from './routes/auth.js';
+import authRoutes from './routes/auth_new.js';
 import mentorsRoutes from './routes/mentors.js';
 import dashboardRoutes from './routes/dashboard.js';
 import bookingsRoutes from './routes/bookings.js';
+import cors from "cors";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.use(cors({
+    origin: "http://localhost:5173",   // allow your frontend
+    credentials: true
+}));
 // Middleware
 app.use(express.json());
 app.use(cookieParser());

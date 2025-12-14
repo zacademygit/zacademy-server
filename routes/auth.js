@@ -7,8 +7,8 @@ import { sendStudentWelcomeEmail, sendMentorWelcomeEmail } from '../services/ema
 const router = express.Router();
 
 // JWT secret - should be in environment variable in production
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this-in-production';
-const JWT_EXPIRES_IN = '7d'; // Token expires in 7 days
+const JWT_SECRET = process.env.JWT_SECRET || 'jwt-secret';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d'; // Token expires in 7 days
 
 // Helper function to convert DD/MM/YYYY to YYYY-MM-DD for PostgreSQL
 const convertDateFormat = (dateString) => {
@@ -19,6 +19,28 @@ const convertDateFormat = (dateString) => {
     // Handle 2-digit or 4-digit year (e.g., 98 -> 1998, 1998 -> 1998)
     const fullYear = year.length === 2 ? `19${year}` : year;
     return `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+};
+
+// Helper function to calculate age from DD/MM/YYYY format
+const calculateAge = (dateString) => {
+    if (!dateString) return null;
+    const parts = dateString.split('/');
+    if (parts.length !== 3) return null;
+
+    const day = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1; // Month is 0-indexed in JavaScript
+    const year = parseInt(parts[2], 10);
+
+    const birthDate = new Date(year, month, day);
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+    }
+
+    return age;
 };
 
 // User Registration Route
@@ -43,6 +65,14 @@ router.post('/register/user', async (req, res) => {
             });
         }
 
+        // Validate terms agreement
+        if (agreeToTerms !== true) {
+            return res.status(400).json({
+                success: false,
+                message: 'You must agree to the Terms of Service and Privacy Policy'
+            });
+        }
+
         // Validate email format
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(email)) {
@@ -52,11 +82,47 @@ router.post('/register/user', async (req, res) => {
             });
         }
 
-        // Validate password length
+        // Validate password requirements
         if (password.length < 8) {
             return res.status(400).json({
                 success: false,
                 message: 'Password must be at least 8 characters long'
+            });
+        }
+
+        if (password.length > 64) {
+            return res.status(400).json({
+                success: false,
+                message: 'Password must not exceed 64 characters'
+            });
+        }
+
+        if (!/[A-Z]/.test(password)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Password must contain at least one uppercase letter'
+            });
+        }
+
+        if (!/[0-9]/.test(password)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Password must contain at least one number'
+            });
+        }
+
+        // Age validation - Students must be 16 or older
+        const age = calculateAge(dateOfBirth);
+        if (age === null) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid date format. Expected DD/MM/YYYY'
+            });
+        }
+        if (age < 16) {
+            return res.status(400).json({
+                success: false,
+                message: 'You must be at least 16 years old to register as a student'
             });
         }
 
@@ -69,7 +135,7 @@ router.post('/register/user', async (req, res) => {
             });
         }
 
-        // Check if user already exists
+        // Check if user already exists (before expensive password hashing)
         const userCheck = await pool.query(
             'SELECT id FROM users WHERE email = $1',
             [email.toLowerCase()]
@@ -82,7 +148,7 @@ router.post('/register/user', async (req, res) => {
             });
         }
 
-        // Hash password
+        // Hash password (only after confirming user doesn't exist)
         const hashedPassword = await bcrypt.hash(password, 10);
 
         // Insert new user
@@ -137,6 +203,7 @@ router.post('/register/user', async (req, res) => {
             ]
         );
 
+
         // Generate JWT token and auto-authenticate user
         const token = jwt.sign(
             {
@@ -152,7 +219,7 @@ router.post('/register/user', async (req, res) => {
         res.cookie('token', token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict',
+            sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
             maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days in milliseconds
         });
 
@@ -239,6 +306,14 @@ router.post('/register/mentor', async (req, res) => {
             });
         }
 
+        // Validate terms agreement
+        if (agreeToTerms !== true) {
+            return res.status(400).json({
+                success: false,
+                message: 'You must agree to the Terms of Service and Privacy Policy'
+            });
+        }
+
         // Validate email format
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(email)) {
@@ -248,11 +323,47 @@ router.post('/register/mentor', async (req, res) => {
             });
         }
 
-        // Validate password length
+        // Validate password requirements
         if (password.length < 8) {
             return res.status(400).json({
                 success: false,
                 message: 'Password must be at least 8 characters long'
+            });
+        }
+
+        if (password.length > 64) {
+            return res.status(400).json({
+                success: false,
+                message: 'Password must not exceed 64 characters'
+            });
+        }
+
+        if (!/[A-Z]/.test(password)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Password must contain at least one uppercase letter'
+            });
+        }
+
+        if (!/[0-9]/.test(password)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Password must contain at least one number'
+            });
+        }
+
+        // Age validation - Mentors must be 18 or older
+        const age = calculateAge(dateOfBirth);
+        if (age === null) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid date format. Expected DD/MM/YYYY'
+            });
+        }
+        if (age < 18) {
+            return res.status(400).json({
+                success: false,
+                message: 'You must be at least 18 years old to register as a mentor'
             });
         }
 
@@ -265,7 +376,7 @@ router.post('/register/mentor', async (req, res) => {
             });
         }
 
-        // Check if user already exists
+        // Check if user already exists (before expensive password hashing)
         const userCheck = await pool.query(
             'SELECT id FROM users WHERE email = $1',
             [email.toLowerCase()]
@@ -278,7 +389,7 @@ router.post('/register/mentor', async (req, res) => {
             });
         }
 
-        // Hash password
+        // Hash password (only after confirming user doesn't exist)
         const hashedPassword = await bcrypt.hash(password, 10);
 
         // Start transaction
@@ -385,7 +496,7 @@ router.post('/register/mentor', async (req, res) => {
             res.cookie('token', token, {
                 httpOnly: true,
                 secure: process.env.NODE_ENV === 'production',
-                sameSite: 'strict',
+                sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
                 maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days in milliseconds
             });
 
@@ -481,7 +592,7 @@ router.post('/login', async (req, res) => {
         res.cookie('token', token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production', // Use secure cookies in production
-            sameSite: 'strict',
+            sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
             maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days in milliseconds
         });
 
@@ -577,7 +688,7 @@ router.post('/logout', async (req, res) => {
         res.clearCookie('token', {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict'
+            sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
         });
 
         res.json({
