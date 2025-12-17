@@ -35,9 +35,9 @@ export const userExistsByEmail = async (email) => {
 };
 
 /**
- * Create a student user
+ * Create a student user (with optional transaction client)
  */
-export const createStudent = async (userData) => {
+export const createStudent = async (userData, client = null) => {
     const {
         firstName,
         lastName,
@@ -49,7 +49,9 @@ export const createStudent = async (userData) => {
         agreeToMarketing
     } = userData;
 
-    const result = await pool.query(
+    const db = client || pool;
+
+    const result = await db.query(
         `INSERT INTO users (
             first_name,
             last_name,
@@ -81,7 +83,7 @@ export const createStudent = async (userData) => {
 /**
  * Create a mentor user with mentor details (transaction)
  */
-export const createMentor = async (userData, mentorDetails) => {
+export const createMentor = async (userData, mentorDetails, consentData = null) => {
     const {
         firstName,
         lastName,
@@ -169,6 +171,11 @@ export const createMentor = async (userData, mentorDetails) => {
             ]
         );
 
+        // Record marketing consent history if consentData provided
+        if (consentData) {
+            await recordMarketingConsent(newUser.id, consentData, client);
+        }
+
         await client.query('COMMIT');
         return newUser;
 
@@ -181,9 +188,9 @@ export const createMentor = async (userData, mentorDetails) => {
 };
 
 /**
- * Record marketing consent history
+ * Record marketing consent history (with optional transaction client)
  */
-export const recordMarketingConsent = async (userId, consentData) => {
+export const recordMarketingConsent = async (userId, consentData, client = null) => {
     const {
         consentGiven,
         consentMethod,
@@ -194,7 +201,9 @@ export const recordMarketingConsent = async (userId, consentData) => {
         notes
     } = consentData;
 
-    await pool.query(
+    const db = client || pool;
+
+    await db.query(
         `INSERT INTO marketing_consent_history (
             user_id,
             consent_given,

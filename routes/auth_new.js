@@ -110,7 +110,7 @@ router.post('/register/mentor', validateMentorRegistration, async (req, res) => 
     }
 });
 
-/**
+/**fv
  * Login Controller
  * POST /api/auth/login
  */
@@ -194,9 +194,15 @@ router.get('/me', async (req, res) => {
 
     } catch (error) {
         if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
+            res.clearCookie('token', {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+            });
+
             return res.status(401).json({
                 success: false,
-                message: 'Invalid or expired token'
+                message: 'Session expired. Please log in again.'
             });
         }
 

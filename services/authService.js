@@ -1,6 +1,7 @@
 // Business logic for authentication
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import pool from '../db/config.js';
 import {
     userExistsByEmail,
     createStudent,
@@ -64,44 +65,58 @@ export const registerStudent = async (data, req) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create student user
-    const newUser = await createStudent({
-        firstName,
-        lastName,
-        email,
-        hashedPassword,
-        phone,
-        dateOfBirth: formattedDate,
-        agreeToTerms,
-        agreeToMarketing
-    });
+    const client = await pool.connect();
 
-    // Record marketing consent history
-    const clientMetadata = getClientMetadata(req);
-    await recordMarketingConsent(newUser.id, {
-        consentGiven: agreeToMarketing || false,
-        consentMethod: 'signup',
-        ipAddress: clientMetadata.ipAddress,
-        userAgent: clientMetadata.userAgent,
-        source: 'web_app'
-    });
+    try {
+        await client.query('BEGIN');
 
-    // Generate JWT token
-    const token = generateToken(newUser);
+        // Create student user
+        const newUser = await createStudent({
+            firstName,
+            lastName,
+            email,
+            hashedPassword,
+            phone,
+            dateOfBirth: formattedDate,
+            agreeToTerms,
+            agreeToMarketing
+        }, client);
 
-    // Send welcome email (non-blocking)
-    sendStudentWelcomeEmail({
-        firstName: newUser.first_name,
-        lastName: newUser.last_name,
-        email: newUser.email
-    }).catch(error => {
-        console.error('Failed to send welcome email, but registration succeeded:', error);
-    });
+        // Record marketing consent history
+        const clientMetadata = getClientMetadata(req);
+        await recordMarketingConsent(newUser.id, {
+            consentGiven: agreeToMarketing || false,
+            consentMethod: 'signup',
+            ipAddress: clientMetadata.ipAddress,
+            userAgent: clientMetadata.userAgent,
+            source: 'web_app'
+        }, client);
 
-    return {
-        user: newUser,
-        token
-    };
+        await client.query('COMMIT');
+
+        // Generate JWT token
+        const token = generateToken(newUser);
+
+        // Send welcome email (non-blocking)
+        sendStudentWelcomeEmail({
+            firstName: newUser.first_name,
+            lastName: newUser.last_name,
+            email: newUser.email
+        }).catch(error => {
+            console.error('Failed to send welcome email, but registration succeeded:', error);
+        });
+
+        return {
+            user: newUser,
+            token
+        };
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+    } finally {
+        client.release();
+    }
 };
 
 /**
@@ -138,7 +153,17 @@ export const registerMentor = async (data, req) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create mentor user with mentor details
+    // Prepare marketing consent data
+    const clientMetadata = getClientMetadata(req);
+    const consentData = {
+        consentGiven: agreeToMarketing || false,
+        consentMethod: 'signup',
+        ipAddress: clientMetadata.ipAddress,
+        userAgent: clientMetadata.userAgent,
+        source: 'web_app'
+    };
+
+    // Create mentor user with mentor details and marketing consent (all in one transaction)
     const newUser = await createMentor(
         {
             firstName,
@@ -160,18 +185,9 @@ export const registerMentor = async (data, req) => {
             bio,
             linkedin,
             photoUrl
-        }
+        },
+        consentData
     );
-
-    // Record marketing consent history
-    const clientMetadata = getClientMetadata(req);
-    await recordMarketingConsent(newUser.id, {
-        consentGiven: agreeToMarketing || false,
-        consentMethod: 'signup',
-        ipAddress: clientMetadata.ipAddress,
-        userAgent: clientMetadata.userAgent,
-        source: 'web_app'
-    });
 
     // Generate JWT token
     const token = generateToken(newUser);
@@ -196,7 +212,7 @@ export const registerMentor = async (data, req) => {
  */
 export const loginUser = async (email, password) => {
     // Find user by email
-    const user = await findUserByEmail(email);
+    const user = await findUserByEmail(email.toLowerCase());
 
     if (!user) {
         throw new Error('Invalid email or password');
@@ -213,12 +229,8 @@ export const loginUser = async (email, password) => {
     const token = generateToken(user);
 
     // Remove password from user object
-    delete user.password;
-
-    return {
-        user,
-        token
-    };
+    const { password: _, ...userWithoutPassword } = user;
+    return { user: userWithoutPassword, token };
 };
 
 /**
