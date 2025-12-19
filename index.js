@@ -35,6 +35,30 @@ app.use('/api/bookings', bookingsRoutes);
 // Error handling middleware
 app.use((err, req, res, next) => {
     console.error(err.stack);
+
+    // Handle Multer file upload errors
+    if (err.name === 'MulterError') {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({
+                success: false,
+                message: 'File size too large. Maximum size is 8MB.'
+            });
+        }
+        return res.status(400).json({
+            success: false,
+            message: 'File upload error',
+            error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        });
+    }
+
+    // Handle custom file type errors
+    if (err.message && err.message.includes('Invalid file type')) {
+        return res.status(400).json({
+            success: false,
+            message: err.message
+        });
+    }
+
     res.status(500).json({
         success: false,
         message: 'Something went wrong!',

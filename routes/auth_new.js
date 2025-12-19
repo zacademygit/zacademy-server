@@ -11,6 +11,8 @@ import {
     loginUser,
     verifyToken
 } from '../services/authService.js';
+import { upload } from '../middleware/upload.js';
+import { uploadToSupabase, deleteFromSupabase } from '../services/storageService.js';
 
 const router = express.Router();
 
@@ -66,9 +68,31 @@ router.post('/register/user', validateStudentRegistration, async (req, res) => {
  * Mentor Registration Controller
  * POST /api/auth/register/mentor
  */
-router.post('/register/mentor', validateMentorRegistration, async (req, res) => {
+router.post('/register/mentor', upload.single('photo'), validateMentorRegistration, async (req, res) => {
+    let uploadedPhotoUrl = null;
+
     try {
-        const { user, token } = await registerMentor(req.body, req);
+        // Upload photo to Supabase if provided
+        if (req.file) {
+            try {
+                uploadedPhotoUrl = await uploadToSupabase(req.file);
+            } catch (uploadError) {
+                console.error('Photo upload error:', uploadError);
+                return res.status(500).json({
+                    success: false,
+                    message: 'Failed to upload photo. Please try again.',
+                    error: process.env.NODE_ENV === 'development' ? uploadError.message : undefined
+                });
+            }
+        }
+
+        // Register mentor with photo URL
+        const mentorData = {
+            ...req.body,
+            photoUrl: uploadedPhotoUrl
+        };
+
+        const { user, token } = await registerMentor(mentorData, req);
 
         // Set token in httpOnly cookie
         res.cookie('token', token, {
@@ -93,6 +117,16 @@ router.post('/register/mentor', validateMentorRegistration, async (req, res) => 
 
     } catch (error) {
         console.error('Mentor registration error:', error);
+
+        // If registration failed but photo was uploaded, delete it
+        if (uploadedPhotoUrl) {
+            try {
+                await deleteFromSupabase(uploadedPhotoUrl);
+                console.log('Cleaned up uploaded photo after registration failure');
+            } catch (deleteError) {
+                console.error('Failed to delete uploaded photo:', deleteError);
+            }
+        }
 
         // Handle specific error types
         if (error.message === 'An account with this email already exists') {
