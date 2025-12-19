@@ -86,9 +86,9 @@ export const validateStudentRegistration = (req, res, next) => {
             message: 'Please provide all required fields'
         });
     }
-
+    console.log('agreeToTerms', agreeToTerms)
     // Validate terms agreement
-    if (agreeToTerms !== true) {
+    if (agreeToTerms != true) {
         return res.status(400).json({
             success: false,
             message: 'You must agree to the Terms of Service and Privacy Policy'
@@ -146,6 +146,12 @@ export const validateStudentRegistration = (req, res, next) => {
  * Validate mentor registration data
  */
 export const validateMentorRegistration = (req, res, next) => {
+    // Convert string booleans to actual booleans (FormData sends booleans as strings)
+    if (req.body.agreeToTerms === 'true') req.body.agreeToTerms = true;
+    if (req.body.agreeToTerms === 'false') req.body.agreeToTerms = false;
+    if (req.body.agreeToMarketing === 'true') req.body.agreeToMarketing = true;
+    if (req.body.agreeToMarketing === 'false') req.body.agreeToMarketing = false;
+
     const {
         firstName,
         lastName,
